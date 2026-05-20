@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Atlas
 
-## Getting Started
+A fast, minimal personal launcher for the folders, client spreadsheets and
+links you open every day. Built to replace Toby with your own clean design.
 
-First, run the development server:
+**Live:** <https://atlas-six-ashen.vercel.app>
+
+- **Stack:** Next.js (App Router) · TypeScript · Tailwind v4 · shadcn/ui ·
+  Zustand · dnd-kit
+- **Phase 1 (this build):** no login, no backend — everything is stored in your
+  browser's `localStorage`. Your only backup is Export/Import.
+- **Phase 2 (not built yet):** Google login + Drive auto-sync via Supabase. The
+  data layer is already behind a `DataProvider` interface so Phase 2 is a
+  provider swap, not a rewrite.
+
+## Features
+
+- Folders with a name and an accent color; create, rename, recolor, reorder
+  (drag), delete.
+- Links with auto-fetched favicons; add, edit, reorder (drag), delete. Manual
+  URLs are normalized (`vercel.com` → `https://vercel.com`).
+- Click opens in a new tab (`_blank`, `noopener`). "Open all" opens a whole
+  folder; if the browser blocks pop-ups you get a one-time hint.
+- Global search: `⌘K` / `Ctrl+K` or `/`. Fuzzy-matches titles, URLs and folder
+  names. `Enter` opens the top result.
+- Pinned and Recent (last 10) strips at the top.
+- Export / Import your whole dataset as JSON (lossless round-trip).
+- Light / dark mode (dark default), no flash on load.
+
+## Local development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+pnpm dev          # http://localhost:3210
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+```bash
+pnpm build        # production build
+pnpm lint         # eslint
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deploy to Vercel
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The app deploys with zero configuration. You need to be logged into the Vercel
+CLI once (this opens a browser — only you can do this):
 
-## Learn More
+```bash
+npx vercel login
+```
 
-To learn more about Next.js, take a look at the following resources:
+Then, from this directory:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npx vercel --prod
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Copy the production URL it prints (e.g. `https://atlas-xxxx.vercel.app`) — you
+need it for the Chrome extension below.
 
-## Deploy on Vercel
+> Alternatively, push this folder to a GitHub repo and import it at
+> vercel.com/new; Vercel auto-detects Next.js.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Chrome new-tab extension
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See [`extension/README.md`](extension/README.md). In short: paste your Vercel
+URL into `extension/config.js`, then load the `extension/` folder unpacked at
+`chrome://extensions`.
+
+## Data & backups
+
+All data lives under the `atlas:v1` key in `localStorage`. Use the gear menu →
+**Export data** regularly — in Phase 1 that JSON file is your only backup.
+Restore with **Import data**.
+
+## Project structure
+
+```
+app/                 Next.js App Router (layout, page, theme no-flash script)
+components/           UI: header, folder card, link row, dialogs, search…
+components/ui/        shadcn primitives
+lib/types.ts          Typed schema (versioned)
+lib/data/provider.ts  DataProvider interface  ← Phase 2 swap point
+lib/data/localStorageProvider.ts
+lib/store.ts          Zustand store; persists via the provider only
+hooks/                useOpen, useMounted
+extension/            Minimal MV3 new-tab override (no app logic)
+```

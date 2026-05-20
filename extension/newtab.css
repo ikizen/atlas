@@ -1,0 +1,7 @@
+/* Dark canvas so there's no white flash before the redirect. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #0a0a0a;
+}
