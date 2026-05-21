@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   DndContext,
   KeyboardSensor,
@@ -42,16 +43,20 @@ import {
 import { useAtlasStore } from "@/lib/store";
 import { useOpen } from "@/hooks/use-open";
 import { accentColor } from "@/lib/accents";
-import type { Folder, Link } from "@/lib/types";
+import type { Link } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export function FolderCard({
-  folder,
-  links,
-}: {
-  folder: Folder;
-  links: Link[];
-}) {
+export function FolderCard({ folderId }: { folderId: string }) {
+  const folder = useAtlasStore(
+    (s) => s.folders.find((f) => f.id === folderId),
+  );
+  const links = useAtlasStore(
+    useShallow((s) =>
+      folder?.linkIds.map((id) => s.links[id]).filter((l): l is Link => !!l) ??
+      [],
+    ),
+  );
+
   const addLink = useAtlasStore((s) => s.addLink);
   const editLink = useAtlasStore((s) => s.editLink);
   const deleteLink = useAtlasStore((s) => s.deleteLink);
@@ -90,19 +95,28 @@ export function FolderCard({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: folder.id });
+  } = useSortable({ id: folderId });
 
-  const accent = useMemo(() => accentColor(folder.accent), [folder.accent]);
+  const accent = useMemo(
+    () => (folder ? accentColor(folder.accent) : ""),
+    [folder],
+  );
 
-  function handleLinkDragEnd(e: DragEndEvent) {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const ids = links.map((l) => l.id);
-    const oldIndex = ids.indexOf(String(active.id));
-    const newIndex = ids.indexOf(String(over.id));
-    if (oldIndex < 0 || newIndex < 0) return;
-    reorderLinks(folder.id, arrayMove(ids, oldIndex, newIndex));
-  }
+  const handleLinkDragEnd = useCallback(
+    (e: DragEndEvent) => {
+      if (!folder) return;
+      const { active, over } = e;
+      if (!over || active.id === over.id) return;
+      const ids = links.map((l) => l.id);
+      const oldIndex = ids.indexOf(String(active.id));
+      const newIndex = ids.indexOf(String(over.id));
+      if (oldIndex < 0 || newIndex < 0) return;
+      reorderLinks(folder.id, arrayMove(ids, oldIndex, newIndex));
+    },
+    [folder, links, reorderLinks],
+  );
+
+  if (!folder) return null;
 
   return (
     <div

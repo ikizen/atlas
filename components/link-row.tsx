@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -14,7 +15,7 @@ import type { Link } from "@/lib/types";
 import { hostnameOf } from "@/lib/url";
 import { cn } from "@/lib/utils";
 
-export function LinkRow({
+export const LinkRow = memo(function LinkRow({
   link,
   onOpen,
   onTogglePin,
@@ -110,4 +111,4 @@ export function LinkRow({
       </div>
     </div>
   );
-}
+});
