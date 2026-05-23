@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import {
   Command,
   CommandDialog,
@@ -21,6 +21,10 @@ interface Result {
   link: Link;
   folderName: string;
   accentId: string;
+  // Pre-lowercased for fuzzyScore performance
+  titleLow: string;
+  urlLow: string;
+  folderLow: string;
 }
 
 export function CommandSearch({
@@ -35,25 +39,37 @@ export function CommandSearch({
   const { openLink } = useOpen();
   const [query, setQuery] = useState("");
 
+  const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+
   const all = useMemo<Result[]>(() => {
     const out: Result[] = [];
     for (const f of folders) {
+      const folderLow = f.name.toLowerCase();
       for (const id of f.linkIds) {
         const link = linksMap[id];
-        if (link) out.push({ link, folderName: f.name, accentId: f.id });
+        if (link) {
+          out.push({
+            link,
+            folderName: f.name,
+            accentId: f.id,
+            titleLow: link.title.toLowerCase(),
+            urlLow: link.url.toLowerCase(),
+            folderLow,
+          });
+        }
       }
     }
     return out;
   }, [folders, linksMap]);
 
   const results = useMemo(() => {
-    if (!query.trim()) return all.slice(0, 8);
+    if (!deferredQuery) return all.slice(0, 8);
     return all
       .map((r) => {
         const score = Math.max(
-          fuzzyScore(query, r.link.title),
-          fuzzyScore(query, r.link.url),
-          fuzzyScore(query, r.folderName) - 2,
+          fuzzyScore(deferredQuery, r.titleLow),
+          fuzzyScore(deferredQuery, r.urlLow),
+          fuzzyScore(deferredQuery, r.folderLow) - 2,
         );
         return { r, score };
       })
@@ -61,7 +77,7 @@ export function CommandSearch({
       .sort((a, b) => b.score - a.score)
       .slice(0, 12)
       .map((x) => x.r);
-  }, [all, query]);
+  }, [all, deferredQuery]);
 
   function choose(link: Link) {
     openLink(link);
