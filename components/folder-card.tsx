@@ -19,12 +19,15 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  CloudIcon,
   ExternalLinkIcon,
+  FolderOpenIcon,
   GripVerticalIcon,
   MoreVerticalIcon,
   PaletteIcon,
   PencilIcon,
   PlusIcon,
+  RefreshCwIcon,
   Trash2Icon,
 } from "lucide-react";
 import { LinkRow } from "@/components/link-row";
@@ -41,6 +44,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAtlasStore } from "@/lib/store";
 import { useOpen } from "@/hooks/use-open";
+import { useDriveSync } from "@/hooks/use-drive-sync";
+import { useDrivePicker } from "@/hooks/use-drive-picker";
 import { accentColor } from "@/lib/accents";
 import type { Folder, Link } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -60,7 +65,19 @@ export function FolderCard({
   const renameFolder = useAtlasStore((s) => s.renameFolder);
   const setFolderAccent = useAtlasStore((s) => s.setFolderAccent);
   const deleteFolder = useAtlasStore((s) => s.deleteFolder);
+  const setFolderDrive = useAtlasStore((s) => s.setFolderDrive);
+  const clearFolderDrive = useAtlasStore((s) => s.clearFolderDrive);
   const { openLink, openFolder } = useOpen();
+  const { sync, syncing } = useDriveSync(folder.id);
+
+  function handleDrivePicked(driveId: string, driveName: string) {
+    setFolderDrive(folder.id, driveId, driveName);
+    // Kick off first sync immediately after connecting
+    void sync();
+  }
+
+  const { openPicker: openDrivePicker, loading: pickerLoading } =
+    useDrivePicker(handleDrivePicked);
 
   const [linkDialog, setLinkDialog] = useState<{
     open: boolean;
@@ -138,6 +155,30 @@ export function FolderCard({
           {links.length}
         </span>
 
+        {/* Drive sync indicator */}
+        {folder.driveFolderId && (
+          <button
+            type="button"
+            title={
+              folder.driveLastSyncedAt
+                ? `Drive: ${folder.driveFolderName}\nLast synced: ${new Date(folder.driveLastSyncedAt).toLocaleTimeString()}`
+                : `Drive: ${folder.driveFolderName}`
+            }
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted"
+            onClick={() => void sync()}
+            disabled={syncing}
+          >
+            {syncing ? (
+              <RefreshCwIcon className="size-3 animate-spin" />
+            ) : (
+              <CloudIcon className="size-3" />
+            )}
+            <span className="hidden sm:inline max-w-[6rem] truncate">
+              {folder.driveFolderName}
+            </span>
+          </button>
+        )}
+
         <Button
           variant="ghost"
           size="icon-xs"
@@ -180,6 +221,29 @@ export function FolderCard({
               <PaletteIcon /> Change accent
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            {folder.driveFolderId ? (
+              <>
+                <DropdownMenuItem onClick={() => void sync()} disabled={syncing}>
+                  <RefreshCwIcon className={syncing ? "animate-spin" : ""} />
+                  Sync Drive now
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => clearFolderDrive(folder.id)}>
+                  Disconnect Drive
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            ) : (
+              <>
+                <DropdownMenuItem
+                  onClick={() => void openDrivePicker()}
+                  disabled={pickerLoading}
+                >
+                  <FolderOpenIcon className={pickerLoading ? "animate-spin" : ""} />
+                  {pickerLoading ? "Opening…" : "Connect Drive folder"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem
               variant="destructive"
               onClick={() => setConfirmFolder(true)}

@@ -15,7 +15,18 @@ import {
 
 // The single seam Phase 2 swaps. Everything below talks to `provider`, never
 // to localStorage directly.
-const provider: DataProvider = localStorageProvider;
+let provider: DataProvider = localStorageProvider;
+
+/**
+ * Swap the active DataProvider and immediately hydrate the store from the new
+ * source. Call this once from atlas-app.tsx after confirming a Supabase session.
+ */
+export function hydrate(newProvider: DataProvider) {
+  provider = newProvider;
+  void newProvider.load?.().then((data) => {
+    useAtlasStore.getState().replaceAll(data);
+  });
+}
 
 interface AtlasState extends AtlasData {
   // Folder actions
@@ -39,6 +50,19 @@ interface AtlasState extends AtlasData {
   dismissPopupHint: () => void;
   replaceAll: (data: AtlasData) => void;
   exportData: () => AtlasData;
+
+  // Drive sync (Phase 2)
+  setFolderDrive: (id: string, driveId: string, driveName: string) => void;
+  clearFolderDrive: (id: string) => void;
+  upsertDriveLinks: (
+    folderId: string,
+    incoming: Array<{
+      driveFileId: string;
+      title: string;
+      url: string;
+    }>,
+  ) => void;
+  setFolderLastSynced: (id: string, ts: number) => void;
 }
 
 function toData(s: AtlasData): AtlasData {
@@ -198,6 +222,77 @@ export const useAtlasStore = create<AtlasState>((set, get) => ({
     })),
 
   exportData: () => toData(get()),
+
+  // ── Drive actions ─────────────────────────────────────────────────────────
+
+  setFolderDrive: (id, driveId, driveName) =>
+    set((s) => ({
+      folders: s.folders.map((f) =>
+        f.id === id
+          ? { ...f, driveFolderId: driveId, driveFolderName: driveName }
+          : f,
+      ),
+    })),
+
+  clearFolderDrive: (id) =>
+    set((s) => ({
+      folders: s.folders.map((f) => {
+        if (f.id !== id) return f;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { driveFolderId, driveFolderName, driveLastSyncedAt, ...rest } =
+          f;
+        return rest as Folder;
+      }),
+    })),
+
+  upsertDriveLinks: (folderId, incoming) =>
+    set((s) => {
+      const folder = s.folders.find((f) => f.id === folderId);
+      if (!folder) return {};
+
+      // Find existing drive file IDs for this folder
+      const existingFileIds = new Set(
+        folder.linkIds
+          .map((lid) => s.links[lid]?.driveFileId)
+          .filter((id): id is string => Boolean(id)),
+      );
+
+      const newLinks: AtlasData["links"] = { ...s.links };
+      const addedIds: string[] = [];
+
+      for (const item of incoming) {
+        if (existingFileIds.has(item.driveFileId)) continue; // already present
+        const id = crypto.randomUUID();
+        newLinks[id] = {
+          id,
+          title: item.title,
+          url: item.url,
+          pinned: false,
+          source: "drive",
+          driveFileId: item.driveFileId,
+          createdAt: Date.now(),
+        };
+        addedIds.push(id);
+      }
+
+      if (addedIds.length === 0) return {};
+
+      return {
+        links: newLinks,
+        folders: s.folders.map((f) =>
+          f.id === folderId
+            ? { ...f, linkIds: [...f.linkIds, ...addedIds] }
+            : f,
+        ),
+      };
+    }),
+
+  setFolderLastSynced: (id, ts) =>
+    set((s) => ({
+      folders: s.folders.map((f) =>
+        f.id === id ? { ...f, driveLastSyncedAt: ts } : f,
+      ),
+    })),
 }));
 
 // Single persistence subscription: any state change schedules a debounced
