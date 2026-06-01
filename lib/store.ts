@@ -19,7 +19,7 @@ const provider: DataProvider = localStorageProvider;
 
 interface AtlasState extends AtlasData {
   // Folder actions
-  addFolder: (name: string, accent: AccentKey) => string;
+  addFolder: (name: string, accent: AccentKey, parentId?: string) => string;
   renameFolder: (id: string, name: string) => void;
   setFolderAccent: (id: string, accent: AccentKey) => void;
   deleteFolder: (id: string) => void;
@@ -56,16 +56,27 @@ const initial = provider.getInitialState();
 export const useAtlasStore = create<AtlasState>((set, get) => ({
   ...initial,
 
-  addFolder: (name, accent) => {
+  addFolder: (name, accent, parentId) => {
     const id = crypto.randomUUID();
     const folder: Folder = {
       id,
+      parentId,
       name: name.trim() || "Untitled",
       accent,
       linkIds: [],
+      childFolderIds: [],
       createdAt: Date.now(),
     };
-    set((s) => ({ folders: [...s.folders, folder] }));
+    set((s) => ({
+      folders: [
+        ...s.folders.map((f) =>
+          f.id === parentId
+            ? { ...f, childFolderIds: [...f.childFolderIds, id] }
+            : f,
+        ),
+        folder,
+      ],
+    }));
     return id;
   },
 
@@ -83,14 +94,32 @@ export const useAtlasStore = create<AtlasState>((set, get) => ({
 
   deleteFolder: (id) =>
     set((s) => {
-      const folder = s.folders.find((f) => f.id === id);
+      const folderIdsToDelete = new Set<string>();
+      const linkIdsToDelete = new Set<string>();
+
+      const collect = (fid: string) => {
+        if (folderIdsToDelete.has(fid)) return;
+        folderIdsToDelete.add(fid);
+        const f = s.folders.find((x) => x.id === fid);
+        if (!f) return;
+        f.linkIds.forEach((lid) => linkIdsToDelete.add(lid));
+        f.childFolderIds.forEach((cfid) => collect(cfid));
+      };
+
+      collect(id);
+
       const links = { ...s.links };
-      folder?.linkIds.forEach((lid) => delete links[lid]);
-      const removed = new Set(folder?.linkIds ?? []);
+      linkIdsToDelete.forEach((lid) => delete links[lid]);
+
       return {
-        folders: s.folders.filter((f) => f.id !== id),
+        folders: s.folders
+          .filter((f) => !folderIdsToDelete.has(f.id))
+          .map((f) => ({
+            ...f,
+            childFolderIds: f.childFolderIds.filter((cfid) => cfid !== id),
+          })),
         links,
-        recent: s.recent.filter((r) => !removed.has(r.linkId)),
+        recent: s.recent.filter((r) => !linkIdsToDelete.has(r.linkId)),
       };
     }),
 
