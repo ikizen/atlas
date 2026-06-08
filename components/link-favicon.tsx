@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { faviconUrl } from "@/lib/favicon";
 import { cn } from "@/lib/utils";
 
-export function LinkFavicon({
+export const LinkFavicon = memo(function LinkFavicon({
   url,
   title,
   className,
@@ -40,4 +40,4 @@ export function LinkFavicon({
       )}
     </span>
   );
-}
+});

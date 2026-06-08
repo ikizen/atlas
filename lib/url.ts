@@ -6,10 +6,16 @@ export function normalizeUrl(input: string): string {
   return `https://${trimmed}`;
 }
 
+const hostCache = new Map<string, string>();
+
 export function hostnameOf(url: string): string {
+  if (hostCache.has(url)) return hostCache.get(url)!;
   try {
-    return new URL(normalizeUrl(url)).hostname;
+    const result = new URL(normalizeUrl(url)).hostname;
+    hostCache.set(url, result);
+    return result;
   } catch {
+    hostCache.set(url, url);
     return url;
   }
 }
