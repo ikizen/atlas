@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2Icon, FolderIcon, FileIcon, CheckCircle2Icon, AlertCircleIcon } from "lucide-react";
+import {
+  CheckCircle2Icon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  FileIcon,
+  FolderIcon,
+  Loader2Icon,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -14,7 +21,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { initGoogleApi, authenticate, fetchDriveFolder, type DriveFolder } from "@/lib/google-drive";
+import {
+  extractFolderId,
+  fetchDriveFolder,
+  type DriveFolder,
+} from "@/lib/google-drive";
 import { useAtlasStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +34,26 @@ interface GoogleDriveImportDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+// ─── helpers ───────────────────────────────────────────────────────────────
+
+function collectAllIds(folder: DriveFolder, into: Set<string>) {
+  into.add(folder.id);
+  folder.files.forEach((f) => into.add(f.id));
+  folder.folders.forEach((sub) => collectAllIds(sub, into));
+}
+
+function hasSelectedDescendant(
+  folder: DriveFolder,
+  selected: Set<string>,
+): boolean {
+  if (folder.files.some((f) => selected.has(f.id))) return true;
+  return folder.folders.some(
+    (sub) => selected.has(sub.id) || hasSelectedDescendant(sub, selected),
+  );
+}
+
+// ─── component ─────────────────────────────────────────────────────────────
+
 export function GoogleDriveImportDialog({
   open,
   onOpenChange,
@@ -30,231 +61,258 @@ export function GoogleDriveImportDialog({
   const addFolder = useAtlasStore((s) => s.addFolder);
   const addLink = useAtlasStore((s) => s.addLink);
 
-  const [step, setStep] = useState<"link" | "preview" | "importing" | "success">("link");
+  const [step, setStep] = useState<"link" | "preview" | "importing" | "done">(
+    "link",
+  );
   const [loading, setLoading] = useState(false);
   const [folderLink, setFolderLink] = useState("");
   const [driveData, setDriveData] = useState<DriveFolder | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [importStats, setImportStats] = useState({ folders: 0, links: 0 });
 
-  async function handleConnect() {
+  // ── fetch ────────────────────────────────────────────────────────────────
+
+  async function handleFetch() {
+    setError(null);
+    const folderId = extractFolderId(folderLink);
+    if (!folderId) {
+      setError("Couldn't find a folder ID in that link. Paste the full Drive URL.");
+      return;
+    }
+
+    setLoading(true);
     try {
-      setLoading(true);
-      await initGoogleApi();
-      await authenticate();
-
-      const folderId = extractFolderId(folderLink);
-      if (!folderId) {
-        toast.error("Invalid Google Drive folder link");
-        return;
-      }
-
       const data = await fetchDriveFolder(folderId);
       setDriveData(data);
 
-      // Select all by default
+      // Select everything by default
       const ids = new Set<string>();
-      const collectIds = (f: DriveFolder) => {
-        ids.add(f.id);
-        f.files.forEach(file => ids.add(file.id));
-        f.folders.forEach(collectIds);
-      };
-      collectIds(data);
+      collectAllIds(data, ids);
       setSelectedIds(ids);
 
       setStep("preview");
-    } catch (err: unknown) {
-      console.error(err);
-      const message = err instanceof Error ? err.message : "Please check your configuration and permissions.";
-      toast.error("Failed to connect to Google Drive", {
-        description: message
-      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to read Drive folder.");
     } finally {
       setLoading(false);
     }
   }
 
-  function extractFolderId(link: string) {
-    const match = link.match(/[-\w]{25,}/);
-    return match ? match[0] : null;
-  }
+  // ── selection ────────────────────────────────────────────────────────────
 
-  function toggleSelection(id: string, isFolder: boolean) {
+  function toggleItem(id: string, isFolder: boolean) {
+    if (!driveData) return;
     const next = new Set(selectedIds);
+
     if (next.has(id)) {
       next.delete(id);
-      if (isFolder && driveData) {
-        // Deselect children
-        const deselectChildren = (fid: string) => {
-          const findAndDeselect = (current: DriveFolder) => {
-            if (current.id === fid) {
-              current.files.forEach(f => next.delete(f.id));
-              current.folders.forEach(f => {
-                next.delete(f.id);
-                deselectChildren(f.id);
-              });
-            } else {
-              current.folders.forEach(findAndDeselect);
-            }
-          };
-          findAndDeselect(driveData);
-        };
-        deselectChildren(id);
+      if (isFolder) {
+        // Deselect all descendants
+        const found = findFolder(driveData, id);
+        if (found) {
+          const desc = new Set<string>();
+          collectAllIds(found, desc);
+          desc.delete(found.id); // already removed above
+          desc.forEach((x) => next.delete(x));
+        }
       }
     } else {
       next.add(id);
-      // Select parents would be nice but more complex.
-      // Let's just select children for now.
-      if (isFolder && driveData) {
-        const selectChildren = (fid: string) => {
-          const findAndSelect = (current: DriveFolder) => {
-            if (current.id === fid) {
-              current.files.forEach(f => next.add(f.id));
-              current.folders.forEach(f => {
-                next.add(f.id);
-                selectChildren(f.id);
-              });
-            } else {
-              current.folders.forEach(findAndSelect);
-            }
-          };
-          findAndSelect(driveData);
-        };
-        selectChildren(id);
+      if (isFolder) {
+        const found = findFolder(driveData, id);
+        if (found) {
+          const desc = new Set<string>();
+          collectAllIds(found, desc);
+          desc.forEach((x) => next.add(x));
+        }
       }
     }
+
     setSelectedIds(next);
   }
+
+  function findFolder(root: DriveFolder, id: string): DriveFolder | null {
+    if (root.id === id) return root;
+    for (const sub of root.folders) {
+      const found = findFolder(sub, id);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function selectAll() {
+    if (!driveData) return;
+    const ids = new Set<string>();
+    collectAllIds(driveData, ids);
+    setSelectedIds(ids);
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set());
+  }
+
+  // ── import ───────────────────────────────────────────────────────────────
 
   async function handleImport() {
     if (!driveData) return;
     setStep("importing");
 
-    const importRecursive = (folder: DriveFolder, parentId?: string) => {
-      let atlasFolderId = parentId;
+    let foldersCreated = 0;
+    let linksCreated = 0;
 
-      const shouldImportFolder = selectedIds.has(folder.id);
-      const hasSelectedChildren = folder.files.some(f => selectedIds.has(f.id)) ||
-                                folder.folders.some(f => hasSelectedRecursive(f));
+    function importRecursive(folder: DriveFolder, parentId?: string) {
+      // Only create the Atlas folder if it or any child is selected
+      const shouldCreate =
+        selectedIds.has(folder.id) || hasSelectedDescendant(folder, selectedIds);
+      if (!shouldCreate) return;
 
-      if (shouldImportFolder || hasSelectedChildren) {
-        atlasFolderId = addFolder(folder.name, "blue", parentId);
+      const atlasFolderId = addFolder(folder.name, "blue", parentId);
+      foldersCreated++;
 
-        folder.files.forEach(file => {
-          if (selectedIds.has(file.id)) {
-            addLink(atlasFolderId!, file.name, file.webViewLink);
-          }
-        });
+      // Add files as links
+      folder.files.forEach((file) => {
+        if (selectedIds.has(file.id)) {
+          addLink(atlasFolderId, file.name, file.webViewLink);
+          linksCreated++;
+        }
+      });
 
-        folder.folders.forEach(sub => importRecursive(sub, atlasFolderId));
-      }
-    };
-
-    const hasSelectedRecursive = (folder: DriveFolder): boolean => {
-      if (selectedIds.has(folder.id)) return true;
-      if (folder.files.some(f => selectedIds.has(f.id))) return true;
-      return folder.folders.some(f => hasSelectedRecursive(f));
-    };
+      // Recurse into subfolders
+      folder.folders.forEach((sub) => importRecursive(sub, atlasFolderId));
+    }
 
     importRecursive(driveData);
-    setStep("success");
-    toast.success("Import complete!");
+
+    setImportStats({ folders: foldersCreated, links: linksCreated });
+    setStep("done");
+    toast.success(`Imported ${linksCreated} link${linksCreated !== 1 ? "s" : ""} in ${foldersCreated} folder${foldersCreated !== 1 ? "s" : ""}`);
   }
 
-  const FolderTree = ({ folder, level = 0 }: { folder: DriveFolder, level?: number }) => (
-    <div className="flex flex-col gap-1">
-      <div
-        className={cn(
-          "flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted cursor-pointer transition-colors",
-          !selectedIds.has(folder.id) && "opacity-50"
-        )}
-        style={{ paddingLeft: `${level * 16 + 8}px` }}
-        onClick={() => toggleSelection(folder.id, true)}
-      >
-        <FolderIcon className="size-4 text-blue-500" />
-        <span className="flex-1 truncate">{folder.name}</span>
-        <div className={cn("size-4 rounded border flex items-center justify-center", selectedIds.has(folder.id) ? "bg-blue-500 border-blue-500" : "border-muted-foreground")}>
-          {selectedIds.has(folder.id) && <div className="size-2 bg-white rounded-full" />}
-        </div>
-      </div>
-      {folder.files.map(file => (
-        <div
-          key={file.id}
-          className={cn(
-            "flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted cursor-pointer transition-colors",
-            !selectedIds.has(file.id) && "opacity-50"
-          )}
-          style={{ paddingLeft: `${(level + 1) * 16 + 8}px` }}
-          onClick={() => toggleSelection(file.id, false)}
-        >
-          <FileIcon className="size-4 text-muted-foreground" />
-          <span className="flex-1 truncate text-xs">{file.name}</span>
-          <div className={cn("size-3.5 rounded border flex items-center justify-center", selectedIds.has(file.id) ? "bg-blue-500 border-blue-500" : "border-muted-foreground")}>
-            {selectedIds.has(file.id) && <div className="size-1.5 bg-white rounded-full" />}
-          </div>
-        </div>
-      ))}
-      {folder.folders.map(sub => (
-        <FolderTree key={sub.id} folder={sub} level={level + 1} />
-      ))}
-    </div>
-  );
+  // ── reset & close ────────────────────────────────────────────────────────
 
-  return (
-    <Dialog open={open} onOpenChange={(o) => {
-      onOpenChange(o);
-      if (!o) setTimeout(() => {
+  function handleClose(o: boolean) {
+    onOpenChange(o);
+    if (!o) {
+      setTimeout(() => {
         setStep("link");
         setDriveData(null);
+        setFolderLink("");
+        setError(null);
+        setSelectedIds(new Set());
       }, 300);
-    }}>
-      <DialogContent className="sm:max-w-md">
+    }
+  }
+
+  // ── count selected files (not folders) ───────────────────────────────────
+
+  function countSelectedFiles(folder: DriveFolder): number {
+    let n = folder.files.filter((f) => selectedIds.has(f.id)).length;
+    folder.folders.forEach((sub) => {
+      n += countSelectedFiles(sub);
+    });
+    return n;
+  }
+
+  const selectedFileCount = driveData ? countSelectedFiles(driveData) : 0;
+
+  // ─────────────────────────────────────────────────────────────────────────
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Import from Google Drive</DialogTitle>
           <DialogDescription>
-            {step === "link" && "Paste a link to a Google Drive folder to import its contents."}
-            {step === "preview" && "Select the files and folders you want to import."}
-            {step === "importing" && "Creating folders and links in Atlas..."}
-            {step === "success" && "Your Google Drive files have been imported."}
+            {step === "link" &&
+              "Paste the link to a Google Drive folder. All files inside will be imported as links."}
+            {step === "preview" &&
+              "Choose which files and folders to import. Everything is selected by default."}
+            {step === "importing" && "Creating folders and links in Atlas…"}
+            {step === "done" && "Import complete!"}
           </DialogDescription>
         </DialogHeader>
 
+        {/* ── Step 1: URL input ── */}
         {step === "link" && (
-          <div className="flex flex-col gap-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="folder-link">Folder Link</Label>
+          <div className="flex flex-col gap-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="folder-link">Google Drive folder URL</Label>
               <Input
                 id="folder-link"
-                placeholder="https://drive.google.com/drive/folders/..."
+                placeholder="https://drive.google.com/drive/folders/…"
                 value={folderLink}
-                onChange={(e) => setFolderLink(e.target.value)}
+                onChange={(e) => {
+                  setFolderLink(e.target.value);
+                  setError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && folderLink) void handleFetch();
+                }}
+                autoFocus
+              />
+              {error && (
+                <p className="text-xs text-destructive">{error}</p>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Atlas uses your existing Google sign-in — no extra permissions dialog.
+            </p>
+          </div>
+        )}
+
+        {/* ── Step 2: Preview tree ── */}
+        {step === "preview" && driveData && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+              <span>{selectedFileCount} file{selectedFileCount !== 1 ? "s" : ""} selected</span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="underline underline-offset-2 hover:text-foreground transition-colors"
+                  onClick={selectAll}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  className="underline underline-offset-2 hover:text-foreground transition-colors"
+                  onClick={deselectAll}
+                >
+                  None
+                </button>
+              </div>
+            </div>
+            <div className="atlas-scroll max-h-72 overflow-y-auto rounded-lg border p-1">
+              <FolderTree
+                folder={driveData}
+                selectedIds={selectedIds}
+                onToggle={toggleItem}
               />
             </div>
-            <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground flex gap-2">
-              <AlertCircleIcon className="size-4 shrink-0" />
-            <p>You&apos;ll need to sign in to Google to allow Atlas to read the folder contents.</p>
-            </div>
+            {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
         )}
 
-        {step === "preview" && driveData && (
-          <div className="max-h-[300px] overflow-y-auto border rounded-lg p-2 my-2 atlas-scroll">
-            <FolderTree folder={driveData} />
-          </div>
-        )}
-
+        {/* ── Step 3: Importing ── */}
         {step === "importing" && (
-          <div className="flex flex-col items-center justify-center py-10 gap-4">
+          <div className="flex flex-col items-center gap-4 py-10">
             <Loader2Icon className="size-10 animate-spin text-blue-500" />
-            <p className="text-sm font-medium">Syncing files...</p>
+            <p className="text-sm font-medium">Importing…</p>
           </div>
         )}
 
-        {step === "success" && (
-          <div className="flex flex-col items-center justify-center py-10 gap-4 text-center">
+        {/* ── Step 4: Done ── */}
+        {step === "done" && (
+          <div className="flex flex-col items-center gap-4 py-10 text-center">
             <CheckCircle2Icon className="size-12 text-emerald-500" />
             <div>
-              <h3 className="font-semibold">Import successful</h3>
-              <p className="text-sm text-muted-foreground">You can now find your files in the Atlas dashboard.</p>
+              <p className="font-semibold">
+                {importStats.links} link{importStats.links !== 1 ? "s" : ""} imported
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Across {importStats.folders} folder{importStats.folders !== 1 ? "s" : ""} in Atlas
+              </p>
             </div>
           </div>
         )}
@@ -263,30 +321,149 @@ export function GoogleDriveImportDialog({
           {step === "link" && (
             <Button
               className="w-full"
-              onClick={handleConnect}
-              disabled={loading || !folderLink}
+              onClick={handleFetch}
+              disabled={loading || !folderLink.trim()}
             >
-              {loading && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Connect to Drive
+              {loading && <Loader2Icon className="size-4 animate-spin" />}
+              {loading ? "Fetching folder…" : "Preview contents"}
             </Button>
           )}
           {step === "preview" && (
-            <div className="flex gap-2 w-full">
-              <Button variant="outline" className="flex-1" onClick={() => setStep("link")}>
+            <div className="flex w-full gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setStep("link")}
+              >
                 Back
               </Button>
-              <Button className="flex-1" onClick={handleImport} disabled={selectedIds.size === 0}>
-                Import ({selectedIds.size})
+              <Button
+                className="flex-1"
+                onClick={() => void handleImport()}
+                disabled={selectedFileCount === 0}
+              >
+                Import {selectedFileCount > 0 ? `(${selectedFileCount})` : ""}
               </Button>
             </div>
           )}
-          {step === "success" && (
-            <Button className="w-full" onClick={() => onOpenChange(false)}>
+          {step === "done" && (
+            <Button className="w-full" onClick={() => handleClose(false)}>
               Done
             </Button>
           )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── FolderTree component ────────────────────────────────────────────────────
+
+function FolderTree({
+  folder,
+  selectedIds,
+  onToggle,
+  level = 0,
+}: {
+  folder: DriveFolder;
+  selectedIds: Set<string>;
+  onToggle: (id: string, isFolder: boolean) => void;
+  level?: number;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const hasChildren = folder.files.length > 0 || folder.folders.length > 0;
+  const isSelected = selectedIds.has(folder.id);
+
+  return (
+    <div>
+      {/* Folder row */}
+      <div
+        className={cn(
+          "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors hover:bg-muted",
+          !isSelected && "opacity-50",
+        )}
+        style={{ paddingLeft: `${level * 16 + 8}px` }}
+      >
+        <button
+          type="button"
+          className="size-4 shrink-0 text-muted-foreground"
+          onClick={() => hasChildren && setExpanded((e) => !e)}
+        >
+          {hasChildren ? (
+            expanded ? (
+              <ChevronDownIcon className="size-4" />
+            ) : (
+              <ChevronRightIcon className="size-4" />
+            )
+          ) : null}
+        </button>
+        <button
+          type="button"
+          className="flex flex-1 items-center gap-1.5 text-left"
+          onClick={() => onToggle(folder.id, true)}
+        >
+          <FolderIcon className="size-4 shrink-0 text-blue-400" />
+          <span className="min-w-0 flex-1 truncate font-medium">
+            {folder.name}
+          </span>
+          <Checkbox checked={isSelected} />
+        </button>
+      </div>
+
+      {/* Children */}
+      {expanded && (
+        <div>
+          {folder.files.map((file) => {
+            const fileSelected = selectedIds.has(file.id);
+            return (
+              <button
+                key={file.id}
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors hover:bg-muted",
+                  !fileSelected && "opacity-50",
+                )}
+                style={{ paddingLeft: `${(level + 1) * 16 + 8 + 16}px` }}
+                onClick={() => onToggle(file.id, false)}
+              >
+                <FileIcon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-left text-xs">
+                  {file.name}
+                </span>
+                <Checkbox checked={fileSelected} />
+              </button>
+            );
+          })}
+          {folder.folders.map((sub) => (
+            <FolderTree
+              key={sub.id}
+              folder={sub}
+              selectedIds={selectedIds}
+              onToggle={onToggle}
+              level={level + 1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Checkbox({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={cn(
+        "ml-2 flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
+        checked
+          ? "border-blue-500 bg-blue-500 text-white"
+          : "border-muted-foreground",
+      )}
+    >
+      {checked && (
+        <svg viewBox="0 0 10 8" className="size-2.5" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M1 4l3 3 5-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </span>
   );
 }
