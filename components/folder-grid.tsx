@@ -20,7 +20,8 @@ import { useAtlasStore } from "@/lib/store";
 import type { Link } from "@/lib/types";
 
 export function FolderGrid() {
-  const folders = useAtlasStore((s) => s.folders);
+  const allFolders = useAtlasStore((s) => s.folders);
+  const folders = allFolders.filter((f) => !f.parentId); // Only top-level folders
   const linksMap = useAtlasStore((s) => s.links);
   const reorderFolders = useAtlasStore((s) => s.reorderFolders);
 

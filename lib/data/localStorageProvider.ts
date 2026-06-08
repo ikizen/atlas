@@ -42,10 +42,14 @@ export function normalize(raw: unknown): AtlasData {
         .filter(isRecord)
         .map((f) => ({
           id: String(f.id ?? crypto.randomUUID()),
+          parentId: typeof f.parentId === "string" ? f.parentId : undefined,
           name: typeof f.name === "string" ? f.name : "Untitled",
           accent: typeof f.accent === "string" ? (f.accent as AtlasData["folders"][number]["accent"]) : "slate",
           linkIds: Array.isArray(f.linkIds)
             ? (f.linkIds.filter((x) => typeof x === "string" && x in links) as string[])
+            : [],
+          childFolderIds: Array.isArray(f.childFolderIds)
+            ? (f.childFolderIds.filter((x) => typeof x === "string") as string[])
             : [],
           createdAt: typeof f.createdAt === "number" ? f.createdAt : Date.now(),
           ...(typeof f.driveFolderId === "string" && { driveFolderId: f.driveFolderId }),
