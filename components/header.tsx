@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderPlusIcon, LogOutIcon, SearchIcon } from "lucide-react";
+import { FolderPlusIcon, SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DataMenu } from "@/components/data-menu";
@@ -8,11 +8,9 @@ import { DataMenu } from "@/components/data-menu";
 export function Header({
   onOpenSearch,
   onNewFolder,
-  onSignOut,
 }: {
   onOpenSearch: () => void;
   onNewFolder: () => void;
-  onSignOut?: () => void;
 }) {
   return (
     <header className="flex items-center gap-3">
@@ -47,17 +45,6 @@ export function Header({
         </Button>
         <ThemeToggle />
         <DataMenu />
-        {onSignOut && (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={onSignOut}
-            aria-label="Sign out"
-            title="Sign out"
-          >
-            <LogOutIcon className="size-4" />
-          </Button>
-        )}
       </div>
     </header>
   );

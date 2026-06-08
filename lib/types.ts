@@ -20,19 +20,16 @@ export interface Link {
   pinned: boolean;
   source: LinkSource;
   createdAt: number;
-  driveFileId?: string; // for dedup on re-sync; matches DB unique(folder_id, drive_file_id)
 }
 
 export interface Folder {
   id: string;
+  parentId?: string; // For nested folders
   name: string;
   accent: AccentKey;
   linkIds: string[];
+  childFolderIds: string[]; // For nested folders
   createdAt: number;
-  // Drive sync (Phase 2) — optional; undefined = not connected
-  driveFolderId?: string;
-  driveFolderName?: string;
-  driveLastSyncedAt?: number; // Unix ms
 }
 
 export interface RecentEntry {
