@@ -32,6 +32,7 @@ export function normalize(raw: unknown): AtlasData {
         pinned: l.pinned === true,
         source: l.source === "drive" ? "drive" : "manual",
         createdAt: typeof l.createdAt === "number" ? l.createdAt : Date.now(),
+        ...(typeof l.driveFileId === "string" && { driveFileId: l.driveFileId }),
       };
     }
   }
@@ -41,12 +42,19 @@ export function normalize(raw: unknown): AtlasData {
         .filter(isRecord)
         .map((f) => ({
           id: String(f.id ?? crypto.randomUUID()),
+          parentId: typeof f.parentId === "string" ? f.parentId : undefined,
           name: typeof f.name === "string" ? f.name : "Untitled",
           accent: typeof f.accent === "string" ? (f.accent as AtlasData["folders"][number]["accent"]) : "slate",
           linkIds: Array.isArray(f.linkIds)
             ? (f.linkIds.filter((x) => typeof x === "string" && x in links) as string[])
             : [],
+          childFolderIds: Array.isArray(f.childFolderIds)
+            ? (f.childFolderIds.filter((x) => typeof x === "string") as string[])
+            : [],
           createdAt: typeof f.createdAt === "number" ? f.createdAt : Date.now(),
+          ...(typeof f.driveFolderId === "string" && { driveFolderId: f.driveFolderId }),
+          ...(typeof f.driveFolderName === "string" && { driveFolderName: f.driveFolderName }),
+          ...(typeof f.driveLastSyncedAt === "number" && { driveLastSyncedAt: f.driveLastSyncedAt }),
         }))
     : [];
 

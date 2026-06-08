@@ -1,12 +1,13 @@
 "use client";
 
-import { useRef } from "react";
-import { DownloadIcon, SettingsIcon, UploadIcon } from "lucide-react";
+import { useRef, useState } from "react";
+import { DownloadIcon, SettingsIcon, UploadIcon, CloudIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -14,11 +15,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAtlasStore } from "@/lib/store";
 import { normalize } from "@/lib/data/localStorageProvider";
+import { GoogleDriveImportDialog } from "@/components/google-drive-import-dialog";
 
 export function DataMenu() {
   const exportData = useAtlasStore((s) => s.exportData);
   const replaceAll = useAtlasStore((s) => s.replaceAll);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [driveOpen, setDriveOpen] = useState(false);
 
   function handleExport() {
     const data = exportData();
@@ -64,16 +67,24 @@ export function DataMenu() {
           <SettingsIcon className="size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel>Backup &amp; restore</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleExport}>
-            <DownloadIcon /> Export data (.json)
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => fileRef.current?.click()}>
-            <UploadIcon /> Import data…
-          </DropdownMenuItem>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Backup &amp; restore</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleExport}>
+              <DownloadIcon /> Export data (.json)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => fileRef.current?.click()}>
+              <UploadIcon /> Import data…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setDriveOpen(true)}>
+              <CloudIcon /> Import from Google Drive
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <GoogleDriveImportDialog open={driveOpen} onOpenChange={setDriveOpen} />
 
       <input
         ref={fileRef}

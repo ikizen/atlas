@@ -20,13 +20,19 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  CloudIcon,
   ExternalLinkIcon,
+  FolderOpenIcon,
   GripVerticalIcon,
   MoreVerticalIcon,
   PaletteIcon,
   PencilIcon,
   PlusIcon,
+  RefreshCwIcon,
   Trash2Icon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  FolderPlusIcon,
 } from "lucide-react";
 import { LinkRow } from "@/components/link-row";
 import { LinkDialog, type LinkDraft } from "@/components/link-dialog";
@@ -42,6 +48,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAtlasStore } from "@/lib/store";
 import { useOpen } from "@/hooks/use-open";
+import { useDriveSync } from "@/hooks/use-drive-sync";
+import { useDrivePicker } from "@/hooks/use-drive-picker";
 import { accentColor } from "@/lib/accents";
 import type { Link } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -65,7 +73,22 @@ export function FolderCard({ folderId }: { folderId: string }) {
   const renameFolder = useAtlasStore((s) => s.renameFolder);
   const setFolderAccent = useAtlasStore((s) => s.setFolderAccent);
   const deleteFolder = useAtlasStore((s) => s.deleteFolder);
+  const allFolders = useAtlasStore((s) => s.folders);
+  const setFolderDrive = useAtlasStore((s) => s.setFolderDrive);
+  const clearFolderDrive = useAtlasStore((s) => s.clearFolderDrive);
   const { openLink, openFolder } = useOpen();
+  const { sync, syncing } = useDriveSync(folder.id);
+
+  function handleDrivePicked(driveId: string, driveName: string) {
+    setFolderDrive(folder.id, driveId, driveName);
+    // Kick off first sync immediately after connecting
+    void sync();
+  }
+
+  const { openPicker: openDrivePicker, loading: pickerLoading } =
+    useDrivePicker(handleDrivePicked);
+
+  const [expanded, setExpanded] = useState(true);
 
   const [linkDialog, setLinkDialog] = useState<{
     open: boolean;
@@ -74,6 +97,7 @@ export function FolderCard({ folderId }: { folderId: string }) {
     initial?: LinkDraft;
   }>({ open: false, mode: "create" });
   const [folderEditOpen, setFolderEditOpen] = useState(false);
+  const [newSubFolderOpen, setNewSubFolderOpen] = useState(false);
   const [confirmFolder, setConfirmFolder] = useState(false);
   const [confirmLink, setConfirmLink] = useState<{
     open: boolean;
@@ -129,28 +153,70 @@ export function FolderCard({ folderId }: { folderId: string }) {
       className={cn(
         "flex flex-col rounded-xl border bg-card/40 ring-1 ring-transparent transition-shadow",
         isDragging && "z-10 opacity-80 shadow-lg ring-border",
+        folder.parentId && "border-none bg-transparent !ring-0",
       )}
     >
       <div className="flex items-center gap-2 px-3 py-2.5">
+        {!folder.parentId && (
+          <button
+            type="button"
+            aria-label="Reorder folder"
+            className="-ml-1 cursor-grab text-muted-foreground/30 transition-colors hover:text-muted-foreground active:cursor-grabbing"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVerticalIcon className="size-4" />
+          </button>
+        )}
         <button
           type="button"
-          aria-label="Reorder folder"
-          className="-ml-1 cursor-grab text-muted-foreground/30 transition-colors hover:text-muted-foreground active:cursor-grabbing"
-          {...attributes}
-          {...listeners}
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-2 min-w-0 flex-1 text-left"
         >
-          <GripVerticalIcon className="size-4" />
+          {folder.childFolderIds.length > 0 || links.length > 0 ? (
+            expanded ? (
+              <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronRightIcon className="size-3.5 text-muted-foreground" />
+            )
+          ) : (
+            <div className="size-3.5" />
+          )}
+          <span
+            className="size-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: "var(--accent)" }}
+          />
+          <h2 className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
+            {folder.name}
+          </h2>
         </button>
-        <span
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: "var(--accent)" }}
-        />
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
-          {folder.name}
-        </h2>
         <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
           {links.length}
         </span>
+
+        {/* Drive sync indicator */}
+        {folder.driveFolderId && (
+          <button
+            type="button"
+            title={
+              folder.driveLastSyncedAt
+                ? `Drive: ${folder.driveFolderName}\nLast synced: ${new Date(folder.driveLastSyncedAt).toLocaleTimeString()}`
+                : `Drive: ${folder.driveFolderName}`
+            }
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted"
+            onClick={() => void sync()}
+            disabled={syncing}
+          >
+            {syncing ? (
+              <RefreshCwIcon className="size-3 animate-spin" />
+            ) : (
+              <CloudIcon className="size-3" />
+            )}
+            <span className="hidden sm:inline max-w-[6rem] truncate">
+              {folder.driveFolderName}
+            </span>
+          </button>
+        )}
 
         <Button
           variant="ghost"
@@ -193,7 +259,33 @@ export function FolderCard({ folderId }: { folderId: string }) {
             <DropdownMenuItem onClick={() => setFolderEditOpen(true)}>
               <PaletteIcon /> Change accent
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setNewSubFolderOpen(true)}>
+              <FolderPlusIcon /> Add subfolder
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
+            {folder.driveFolderId ? (
+              <>
+                <DropdownMenuItem onClick={() => void sync()} disabled={syncing}>
+                  <RefreshCwIcon className={syncing ? "animate-spin" : ""} />
+                  Sync Drive now
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => clearFolderDrive(folder.id)}>
+                  Disconnect Drive
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            ) : (
+              <>
+                <DropdownMenuItem
+                  onClick={() => void openDrivePicker()}
+                  disabled={pickerLoading}
+                >
+                  <FolderOpenIcon className={pickerLoading ? "animate-spin" : ""} />
+                  {pickerLoading ? "Opening…" : "Connect Drive folder"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem
               variant="destructive"
               onClick={() => setConfirmFolder(true)}
@@ -204,60 +296,87 @@ export function FolderCard({ folderId }: { folderId: string }) {
         </DropdownMenu>
       </div>
 
-      <div
-        className="mx-3 h-px"
-        style={{
-          background:
-            "linear-gradient(to right, color-mix(in oklch, var(--accent) 40%, transparent), transparent)",
-        }}
-      />
+      {expanded && (
+        <>
+          {!folder.parentId && (
+            <div
+              className="mx-3 h-px"
+              style={{
+                background:
+                  "linear-gradient(to right, color-mix(in oklch, var(--accent) 40%, transparent), transparent)",
+              }}
+            />
+          )}
 
-      <div className="atlas-scroll flex max-h-[420px] flex-col gap-0.5 overflow-y-auto p-2">
-        {links.length === 0 ? (
-          <button
-            type="button"
-            onClick={() => setLinkDialog({ open: true, mode: "create" })}
-            className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed py-6 text-xs text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
+          <div
+            className={cn(
+              "atlas-scroll flex flex-col gap-0.5 overflow-y-auto p-2",
+              !folder.parentId && "max-h-[420px]",
+              folder.parentId && "ml-4 border-l pl-2"
+            )}
           >
-            <PlusIcon className="size-3.5" /> Add your first link
-          </button>
-        ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleLinkDragEnd}
-          >
-            <SortableContext
-              items={links.map((l) => l.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              {links.map((link) => (
-                <LinkRow
-                  key={link.id}
-                  link={link}
-                  onOpen={() => openLink(link)}
-                  onTogglePin={() => togglePin(link.id)}
-                  onEdit={() =>
-                    setLinkDialog({
-                      open: true,
-                      mode: "edit",
-                      id: link.id,
-                      initial: { title: link.title, url: link.url },
-                    })
-                  }
-                  onDelete={() =>
-                    setConfirmLink({
-                      open: true,
-                      id: link.id,
-                      title: link.title,
-                    })
-                  }
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
-        )}
-      </div>
+            {folder.childFolderIds.length > 0 && (
+              <div className="flex flex-col gap-2 mb-2">
+                {folder.childFolderIds.map((cfid) => {
+                  const cf = allFolders.find((f) => f.id === cfid);
+                  if (!cf) return null;
+                  const clinks = cf.linkIds
+                    .map((id) => linksMap[id])
+                    .filter((l): l is Link => Boolean(l));
+                  return (
+                    <FolderCard key={cf.id} folder={cf} links={clinks} />
+                  );
+                })}
+              </div>
+            )}
+
+            {links.length === 0 && folder.childFolderIds.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => setLinkDialog({ open: true, mode: "create" })}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed py-6 text-xs text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
+              >
+                <PlusIcon className="size-3.5" /> Add your first link
+              </button>
+            ) : (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleLinkDragEnd}
+              >
+                <SortableContext
+                  items={links.map((l) => l.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {links.map((link) => (
+                    <LinkRow
+                      key={link.id}
+                      link={link}
+                      onOpen={() => openLink(link)}
+                      onTogglePin={() => togglePin(link.id)}
+                      onEdit={() =>
+                        setLinkDialog({
+                          open: true,
+                          mode: "edit",
+                          id: link.id,
+                          initial: { title: link.title, url: link.url },
+                        })
+                      }
+                      onDelete={() =>
+                        setConfirmLink({
+                          open: true,
+                          id: link.id,
+                          title: link.title,
+                        })
+                      }
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
+            )}
+          </div>
+        </>
+      )}
 
       <LinkDialog
         open={linkDialog.open}
@@ -281,6 +400,16 @@ export function FolderCard({ folderId }: { folderId: string }) {
         onSubmit={(draft: FolderDraft) => {
           renameFolder(folder.id, draft.name);
           setFolderAccent(folder.id, draft.accent);
+        }}
+      />
+
+      <FolderDialog
+        open={newSubFolderOpen}
+        onOpenChange={setNewSubFolderOpen}
+        mode="create"
+        initial={{ name: "", accent: folder.accent }}
+        onSubmit={(draft: FolderDraft) => {
+          addFolder(draft.name, draft.accent, folder.id);
         }}
       />
 

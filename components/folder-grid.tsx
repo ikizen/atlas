@@ -23,6 +23,9 @@ export function FolderGrid() {
   const folderIds = useAtlasStore(
     useShallow((s) => s.folders.map((f) => f.id)),
   );
+  const allFolders = useAtlasStore((s) => s.folders);
+  const folders = allFolders.filter((f) => !f.parentId); // Only top-level folders
+  const linksMap = useAtlasStore((s) => s.links);
   const reorderFolders = useAtlasStore((s) => s.reorderFolders);
 
   const sensors = useSensors(
