@@ -65,6 +65,7 @@ export function FolderCard({ folderId }: { folderId: string }) {
     ),
   );
 
+  const addFolder = useAtlasStore((s) => s.addFolder);
   const addLink = useAtlasStore((s) => s.addLink);
   const editLink = useAtlasStore((s) => s.editLink);
   const deleteLink = useAtlasStore((s) => s.deleteLink);
@@ -73,14 +74,14 @@ export function FolderCard({ folderId }: { folderId: string }) {
   const renameFolder = useAtlasStore((s) => s.renameFolder);
   const setFolderAccent = useAtlasStore((s) => s.setFolderAccent);
   const deleteFolder = useAtlasStore((s) => s.deleteFolder);
-  const allFolders = useAtlasStore((s) => s.folders);
   const setFolderDrive = useAtlasStore((s) => s.setFolderDrive);
   const clearFolderDrive = useAtlasStore((s) => s.clearFolderDrive);
   const { openLink, openFolder } = useOpen();
-  const { sync, syncing } = useDriveSync(folder.id);
+  // Use folderId prop (not folder.id) — hooks must be called before the `if (!folder) return null` guard
+  const { sync, syncing } = useDriveSync(folderId);
 
   function handleDrivePicked(driveId: string, driveName: string) {
-    setFolderDrive(folder.id, driveId, driveName);
+    setFolderDrive(folderId, driveId, driveName);
     // Kick off first sync immediately after connecting
     void sync();
   }
@@ -317,16 +318,9 @@ export function FolderCard({ folderId }: { folderId: string }) {
           >
             {folder.childFolderIds.length > 0 && (
               <div className="flex flex-col gap-2 mb-2">
-                {folder.childFolderIds.map((cfid) => {
-                  const cf = allFolders.find((f) => f.id === cfid);
-                  if (!cf) return null;
-                  const clinks = cf.linkIds
-                    .map((id) => linksMap[id])
-                    .filter((l): l is Link => Boolean(l));
-                  return (
-                    <FolderCard key={cf.id} folder={cf} links={clinks} />
-                  );
-                })}
+                {folder.childFolderIds.map((cfid) => (
+                  <FolderCard key={cfid} folderId={cfid} />
+                ))}
               </div>
             )}
 

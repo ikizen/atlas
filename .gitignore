@@ -42,3 +42,4 @@ next-env.d.ts
 
 # local agent / IDE config
 .claude/
+file.js

@@ -29,6 +29,9 @@ export interface Folder {
   accent: AccentKey;
   linkIds: string[];
   createdAt: number;
+  // Nested folders (Bolt Phase 2 addition)
+  parentId?: string;
+  childFolderIds: string[];
   // Drive sync (Phase 2) — optional; undefined = not connected
   driveFolderId?: string;
   driveFolderName?: string;

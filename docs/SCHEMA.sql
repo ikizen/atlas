@@ -12,11 +12,14 @@ create table if not exists public.folders (
   name                  text not null,
   accent                text not null default 'slate',
   position              integer not null default 0,
+  parent_id             uuid references public.folders(id) on delete cascade,
   drive_folder_id       text,
   drive_folder_name     text,
   drive_last_synced_at  timestamptz,
   created_at            timestamptz not null default now()
 );
+-- Add parent_id to existing schemas (idempotent)
+alter table public.folders add column if not exists parent_id uuid references public.folders(id) on delete cascade;
 create index if not exists folders_user_position_idx
   on public.folders (user_id, position);
 

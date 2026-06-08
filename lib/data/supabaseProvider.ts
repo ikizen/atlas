@@ -17,6 +17,7 @@ interface DbFolder {
   name: string;
   accent: string;
   position: number;
+  parent_id: string | null;
   drive_folder_id: string | null;
   drive_folder_name: string | null;
   drive_last_synced_at: string | null;
@@ -108,34 +109,45 @@ export class SupabaseProvider implements DataProvider {
       linksByFolder.set(row.folder_id, group);
     }
 
+    // Reconstruct childFolderIds from parent_id relationships
+    const dbFolderRows = (foldersRes.data ?? []) as DbFolder[];
+    const childrenByParent = new Map<string, string[]>();
+    for (const row of dbFolderRows) {
+      if (row.parent_id) {
+        const arr = childrenByParent.get(row.parent_id) ?? [];
+        arr.push(row.id);
+        childrenByParent.set(row.parent_id, arr);
+      }
+    }
+
     // Build folders with ordered linkIds
-    const folders: Folder[] = ((foldersRes.data ?? []) as DbFolder[]).map(
-      (row) => {
-        const folderLinks = (linksByFolder.get(row.id) ?? []).sort(
-          (a, b) => a.position - b.position,
-        );
-        return {
-          id: row.id,
-          name: row.name,
-          accent: row.accent as AccentKey,
-          linkIds: folderLinks.map((l) => l.id),
-          createdAt: new Date(row.created_at).getTime(),
-          ...(row.drive_folder_id
-            ? { driveFolderId: row.drive_folder_id }
-            : {}),
-          ...(row.drive_folder_name
-            ? { driveFolderName: row.drive_folder_name }
-            : {}),
-          ...(row.drive_last_synced_at
-            ? {
-                driveLastSyncedAt: new Date(
-                  row.drive_last_synced_at,
-                ).getTime(),
-              }
-            : {}),
-        };
-      },
-    );
+    const folders: Folder[] = dbFolderRows.map((row) => {
+      const folderLinks = (linksByFolder.get(row.id) ?? []).sort(
+        (a, b) => a.position - b.position,
+      );
+      return {
+        id: row.id,
+        name: row.name,
+        accent: row.accent as AccentKey,
+        linkIds: folderLinks.map((l) => l.id),
+        childFolderIds: childrenByParent.get(row.id) ?? [],
+        createdAt: new Date(row.created_at).getTime(),
+        ...(row.parent_id ? { parentId: row.parent_id } : {}),
+        ...(row.drive_folder_id
+          ? { driveFolderId: row.drive_folder_id }
+          : {}),
+        ...(row.drive_folder_name
+          ? { driveFolderName: row.drive_folder_name }
+          : {}),
+        ...(row.drive_last_synced_at
+          ? {
+              driveLastSyncedAt: new Date(
+                row.drive_last_synced_at,
+              ).getTime(),
+            }
+          : {}),
+      };
+    });
 
     // Recent
     const recent = ((recentRes.data ?? []) as DbRecent[]).map((r) => ({
@@ -177,6 +189,7 @@ export class SupabaseProvider implements DataProvider {
       name: f.name,
       accent: f.accent,
       position: i,
+      parent_id: f.parentId ?? null,
       drive_folder_id: f.driveFolderId ?? null,
       drive_folder_name: f.driveFolderName ?? null,
       drive_last_synced_at: f.driveLastSyncedAt

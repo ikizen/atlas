@@ -2,39 +2,16 @@
 
 import { useCallback, useRef, useState } from "react";
 
-// Google Picker type stubs
+// Google Picker type stubs — gapi/google are loaded at runtime, use any
 declare global {
   interface Window {
-    gapi: {
-      load(lib: string, callback: () => void): void;
-    };
-    google: {
-      picker: {
-        PickerBuilder: new () => GooglePickerBuilder;
-        DocsView: new () => GoogleDocsView;
-        Action: { PICKED: string; CANCEL: string };
-      };
-    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    gapi: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    google: any;
   }
 }
 
-interface GoogleDocsView {
-  setSelectFolderEnabled(v: boolean): this;
-  setMimeTypes(mimeTypes: string): this;
-}
-
-interface GooglePickerBuilder {
-  addView(view: GoogleDocsView): this;
-  setOAuthToken(token: string): this;
-  setDeveloperKey(key: string): this;
-  setCallback(cb: (data: GooglePickerResult) => void): this;
-  build(): { setVisible(v: boolean): void };
-}
-
-interface GooglePickerResult {
-  action: string;
-  docs?: Array<{ id: string; name: string }>;
-}
 
 async function loadPickerScript(): Promise<void> {
   if (typeof window.gapi !== "undefined") return;
@@ -71,7 +48,8 @@ export function useDrivePicker(
 ) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pickerRef = useRef<{ setVisible(v: boolean): void } | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pickerRef = useRef<any>(null);
 
   const openPicker = useCallback(async () => {
     setLoading(true);
@@ -94,7 +72,8 @@ export function useDrivePicker(
         .addView(view)
         .setOAuthToken(accessToken)
         .setDeveloperKey(apiKey)
-        .setCallback((data: GooglePickerResult) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .setCallback((data: any) => {
           if (data.action === window.google.picker.Action.PICKED) {
             const doc = data.docs?.[0];
             if (doc) onPicked(doc.id, doc.name);
